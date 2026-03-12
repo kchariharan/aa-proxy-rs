@@ -63,6 +63,18 @@
           <button type="button" class="download-btn">
             📜 Download log package (.tar.gz)
           </button>
+          <button type="button" onclick="handleModeSwitch('aa')">
+            📱 USB mode: Android Auto
+          </button>
+          <button type="button" onclick="handleModeSwitch('media')">
+            🎵 USB mode: Local music
+          </button>
+          <button type="button" onclick="handleModeSwitch('both')">
+            🔀 USB mode: Both (AA + Music)
+          </button>
+          <button type="button" data-endpoint="/upload-music">
+            🎶 Upload music archive (.tar.gz)
+          </button>
           <button type="button" onclick="handleAction('/restart')">
             🧬 Apply / restart
           </button>
@@ -242,6 +254,26 @@
         } catch (error) {
           console.error("Request failed:", error);
           alert("❌ Request failed.");
+        }
+      }
+
+      async function handleModeSwitch(mode) {
+        try {
+          const response = await fetch("/mode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          });
+
+          const text = await response.text();
+          if (!response.ok) {
+            throw new Error(text || `Status: ${response.status}`);
+          }
+
+          alert(`✅ ${text}`);
+        } catch (error) {
+          console.error("Mode switch failed:", error);
+          alert(`❌ Mode switch failed:\n${error.message}`);
         }
       }
 

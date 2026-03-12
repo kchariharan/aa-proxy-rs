@@ -48,6 +48,7 @@ const UMTPRD_CONF_IN: &str = "/etc/umtprd/umtprd.conf.in";
 const UMTPRD_CONF_OUT: &str = "/var/run/umtprd.conf";
 const GADGET_INIT_IN: &str = "/etc/S92usb_gadget.in";
 const GADGET_INIT_OUT: &str = "/var/run/S92usb_gadget";
+const AA_MODE_SWITCH_OUT: &str = "/var/run/aa-mode-switch.sh";
 const REBOOT_CMD: &str = "/sbin/reboot";
 
 /// AndroidAuto wired/wireless proxy
@@ -466,6 +467,23 @@ fn generate_usb_strings(input: &str, output: &str) -> std::io::Result<()> {
     fs::write(output, rendered)
 }
 
+fn generate_mode_switch_script() -> std::io::Result<()> {
+    info!(
+        "{} 💾 Generating mode switch script: <bold><green>{}</>",
+        NAME, AA_MODE_SWITCH_OUT
+    );
+
+    fs::write(
+        AA_MODE_SWITCH_OUT,
+        include_str!("../contrib/aa-mode-switch.sh"),
+    )?;
+
+    // make script executable
+    let mut perms = fs::metadata(AA_MODE_SWITCH_OUT)?.permissions();
+    perms.set_mode(0o755); // rwxr-xr-x
+    fs::set_permissions(AA_MODE_SWITCH_OUT, perms)
+}
+
 fn main() -> Result<()> {
     let started = Instant::now();
 
@@ -511,6 +529,8 @@ fn main() -> Result<()> {
         let mut perms = fs::metadata(GADGET_INIT_OUT)?.permissions();
         perms.set_mode(0o755); // rwxr-xr-x
         fs::set_permissions(GADGET_INIT_OUT, perms)?;
+
+        generate_mode_switch_script().expect("error generating mode switch script");
 
         return Ok(());
     }

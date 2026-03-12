@@ -174,6 +174,18 @@ The script can be configured in `config.toml` and is executed with the arguments
 
 Thanks to the power of open source, even older EVs can now enjoy modern features and a much better navigation experience!
 
+## Local music from Raspberry Pi storage (without phone streaming)
+
+If you want the head unit to play MP3 files directly from the Raspberry Pi SD card:
+
+- Use **Web UI mode buttons** to switch USB behavior: `aa`, `media`, `both`
+- Upload songs directly from the Web UI using **"Upload music archive (.tar.gz)"**
+- Music is stored on the device under `/data/music`
+
+The mode-switch backend script is now generated automatically during `--generate-system-config` as `/var/run/aa-mode-switch.sh` (no manual installation needed).
+
+A full feasibility/implementation guide is in `docs/pi-music-feasibility.md`.
+
 ## Troubleshooting
 Sometimes deleting the system Bluetooth cache at /var/lib/bluetooth and restarting bluetoothd fixes persistent issues with device connectivity.
 Consider also using "Forget" of bluetooth device in the Android phone.
