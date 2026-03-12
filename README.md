@@ -186,6 +186,8 @@ The mode-switch backend script is now generated automatically during `--generate
 
 A full feasibility/implementation guide is in `docs/pi-music-feasibility.md`.
 
+For a single end-to-end command checklist, use `docs/LOCAL_MUSIC_README.md`.
+
 ## Troubleshooting
 Sometimes deleting the system Bluetooth cache at /var/lib/bluetooth and restarting bluetoothd fixes persistent issues with device connectivity.
 Consider also using "Forget" of bluetooth device in the Android phone.
