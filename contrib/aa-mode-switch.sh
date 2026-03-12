@@ -39,6 +39,21 @@ service_do() {
   fi
 }
 
+is_umtprd_running() {
+  if [ -f "$PIDFILE" ]; then
+    pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  if pgrep -f "$(basename "$UMTPRD_BIN")" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
 stop_umtprd() {
   if [ -f "$PIDFILE" ]; then
     kill "$(cat "$PIDFILE")" >/dev/null 2>&1 || true
@@ -47,18 +62,7 @@ stop_umtprd() {
   pkill -f "$(basename "$UMTPRD_BIN")" >/dev/null 2>&1 || true
 }
 
-start_umtprd() {
-  if [ ! -x "$UMTPRD_BIN" ]; then
-    log "ERROR: umtprd binary not found/executable at $UMTPRD_BIN"
-    exit 1
-  fi
-
-  if [ ! -f "$UMTPRD_CONF" ]; then
-    log "ERROR: umtprd config not found at $UMTPRD_CONF"
-    log "Hint: run aa-proxy-rs --generate-system-config once on target image"
-    exit 1
-  fi
-
+prepare_music_link() {
   if [ ! -d "$AA_MUSIC_DIR" ]; then
     log "Creating missing music directory: $AA_MUSIC_DIR"
     mkdir -p "$AA_MUSIC_DIR"
@@ -68,9 +72,45 @@ start_umtprd() {
   mkdir -p /tmp/aa-proxy-mtp
   rm -f /tmp/aa-proxy-mtp/music
   ln -s "$AA_MUSIC_DIR" /tmp/aa-proxy-mtp/music
+}
 
-  "$UMTPRD_BIN" -c "$UMTPRD_CONF" -d
-  log "umtprd started with config: $UMTPRD_CONF"
+start_umtprd_once() {
+  if [ ! -x "$UMTPRD_BIN" ]; then
+    log "ERROR: umtprd binary not found/executable at $UMTPRD_BIN"
+    return 1
+  fi
+
+  if [ ! -f "$UMTPRD_CONF" ]; then
+    log "ERROR: umtprd config not found at $UMTPRD_CONF"
+    log "Hint: run aa-proxy-rs --generate-system-config once on target image"
+    return 1
+  fi
+
+  prepare_music_link
+
+  umtprd_log="$(mktemp /tmp/aa-mode-switch-umtprd.XXXXXX.log)"
+  if "$UMTPRD_BIN" -c "$UMTPRD_CONF" -d >"$umtprd_log" 2>&1; then
+    log "umtprd started with config: $UMTPRD_CONF"
+    rm -f "$umtprd_log"
+    return 0
+  fi
+
+  cat "$umtprd_log" >&2 || true
+  rm -f "$umtprd_log"
+  return 1
+}
+
+ensure_umtprd_running() {
+  if is_umtprd_running; then
+    log "umtprd is already running"
+    return 0
+  fi
+
+  if start_umtprd_once; then
+    return 0
+  fi
+
+  return 1
 }
 
 usb_gadget_start() {
@@ -101,27 +141,31 @@ switch_to_media() {
   log "Switching to Local Music (MTP) mode"
   service_do "$AA_PROXY_SERVICE" stop
 
+  stop_umtprd
+  service_do umtprd stop
+
   usb_gadget_stop
   usb_gadget_start
 
-  start_umtprd
+  ensure_umtprd_running
   log "Media mode requested (HU must be set to USB media source)"
 }
 
 switch_to_both() {
   log "Switching to Combined mode (Android Auto + Local Music MTP)"
 
-  # Keep/restart gadget once to ensure all gadget functions are applied.
-  usb_gadget_stop
-  usb_gadget_start
+  # In combined mode avoid forcing a gadget rebind here, because it can interrupt
+  # active AA sessions and may race with existing FunctionFS mounts.
+  service_do "$AA_PROXY_SERVICE" start
 
-  # Keep Android Auto proxy running and also expose MTP media content.
-  service_do "$AA_PROXY_SERVICE" restart
-  start_umtprd
+  if ! ensure_umtprd_running; then
+    log "ERROR: Could not start umtprd in combined mode."
+    log "Hint: if you see FunctionFS init errors, switch to 'media' once, then back to 'both'."
+    return 1
+  fi
 
   log "Combined mode requested (requires HU support for AA + USB media at the same time)"
 }
-
 
 case "${1:-}" in
   aa)

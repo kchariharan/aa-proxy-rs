@@ -773,22 +773,56 @@ pub async fn upload_music_handler(headers: HeaderMap, RawBody(body): RawBody) ->
     let decompressed = GzDecoder::new(cursor);
     let mut archive = Archive::new(decompressed);
 
-    if let Err(err) = archive.unpack(AA_MUSIC_DIR_DEFAULT) {
-        return (
-            StatusCode::BAD_REQUEST,
-            format!(
-                "Failed to unpack archive into {}: {}",
-                AA_MUSIC_DIR_DEFAULT, err
-            ),
-        )
-            .into_response();
+    let mut extracted = 0usize;
+    let entries = match archive.entries() {
+        Ok(entries) => entries,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid tar archive: {}", err),
+            )
+                .into_response();
+        }
+    };
+
+    for entry in entries {
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to read tar entry: {}", err),
+                )
+                    .into_response();
+            }
+        };
+
+        match entry.unpack_in(AA_MUSIC_DIR_DEFAULT) {
+            Ok(true) => {
+                extracted += 1;
+            }
+            Ok(false) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Archive contains unsafe paths (outside destination)".to_string(),
+                )
+                    .into_response();
+            }
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to extract archive entry: {}", err),
+                )
+                    .into_response();
+            }
+        }
     }
 
     (
         StatusCode::OK,
         format!(
-            "Music archive extracted successfully to {}",
-            AA_MUSIC_DIR_DEFAULT
+            "Music archive extracted successfully to {} ({} entries)",
+            AA_MUSIC_DIR_DEFAULT, extracted
         ),
     )
         .into_response()

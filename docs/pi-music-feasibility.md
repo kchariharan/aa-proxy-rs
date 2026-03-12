@@ -81,6 +81,7 @@ Use the embedded Web UI music uploader:
 Notes:
 - You can upload folders; directory structure is preserved.
 - Re-uploading will overwrite files with same paths.
+- If `both` mode reports a FunctionFS init error, switch to `media` once and then back to `both` (this is now also hinted in backend logs).
 
 ## Validation checklist in your car
 1. `media` mode: HU in USB media source should detect device and browse music.
