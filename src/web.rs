@@ -337,10 +337,15 @@ async fn mode_handler(
                 .into_response()
         }
         Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
+            let code = out.status.code().unwrap_or(-1);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Mode switch failed for `{}`: {}", mode, stderr),
+                format!(
+                    "Mode switch failed for `{}` (exit code: {})\nstdout:\n{}\nstderr:\n{}\nHint: check /var/log/aa-mode-switch.log",
+                    mode, code, stdout, stderr
+                ),
             )
                 .into_response()
         }

@@ -21,6 +21,9 @@
 
 set -eu
 
+AA_MODE_SWITCH_LOG="${AA_MODE_SWITCH_LOG:-/var/log/aa-mode-switch.log}"
+AA_MODE_SWITCH_DEBUG="${AA_MODE_SWITCH_DEBUG:-0}"
+
 AA_PROXY_SERVICE="${AA_PROXY_SERVICE:-aa-proxy-rs}"
 UMTPRD_BIN="${UMTPRD_BIN:-/usr/sbin/umtprd}"
 UMTPRD_CONF="${UMTPRD_CONF:-/var/run/umtprd.conf}"
@@ -38,8 +41,28 @@ MASS_GADGET_PATH="$CFGFS_BASE/$MASS_GADGET_NAME"
 ACCESSORY_GADGET_PATH="$CFGFS_BASE/accessory"
 
 log() {
-  printf '[aa-mode-switch] %s\n' "$*"
+  ts="$(date '+%F %T' 2>/dev/null || true)"
+  [ -n "$ts" ] || ts="-"
+  mkdir -p "$(dirname "$AA_MODE_SWITCH_LOG")" >/dev/null 2>&1 || true
+  printf '[aa-mode-switch] %s %s
+' "$ts" "$*" | tee -a "$AA_MODE_SWITCH_LOG"
 }
+
+err() {
+  ts="$(date '+%F %T' 2>/dev/null || true)"
+  [ -n "$ts" ] || ts="-"
+  mkdir -p "$(dirname "$AA_MODE_SWITCH_LOG")" >/dev/null 2>&1 || true
+  printf '[aa-mode-switch] %s ERROR: %s
+' "$ts" "$*" | tee -a "$AA_MODE_SWITCH_LOG" >&2
+}
+
+# initialize logging early
+: > "$AA_MODE_SWITCH_LOG" 2>/dev/null || true
+log "starting mode switch script"
+if [ "$AA_MODE_SWITCH_DEBUG" = "1" ]; then
+  set -x
+  log "debug tracing enabled (set -x)"
+fi
 
 service_do() {
   svc="$1"
@@ -234,7 +257,7 @@ create_or_resize_mass_image() {
   # validate target numeric
   case "$target_mb" in
     ''|*[!0-9]*)
-      log "ERROR: invalid MASS_IMAGE_SIZE_MB: $target_mb"
+      err "invalid MASS_IMAGE_SIZE_MB: $target_mb"
       return 1
       ;;
   esac
@@ -242,7 +265,7 @@ create_or_resize_mass_image() {
   free_mb="$(get_free_space_mb "$image_parent" || true)"
   needed_mb=$((target_mb + 64))
   if [ -n "$free_mb" ] && [ "$current_mb" -eq 0 ] && [ "$free_mb" -lt "$needed_mb" ]; then
-    log "ERROR: not enough free space to create mass image"
+    err "not enough free space to create mass image"
     log "Need ~${needed_mb}MB free, available: ${free_mb}MB"
     log "Hint: set smaller size, e.g.: MASS_IMAGE_SIZE_MB=512 /var/run/aa-mode-switch.sh mass"
     return 1
@@ -258,7 +281,7 @@ create_or_resize_mass_image() {
     elif command -v mkfs.fat >/dev/null 2>&1; then
       mkfs.fat "$MASS_IMAGE_PATH" >/dev/null 2>&1
     else
-      log "ERROR: mkfs.vfat/mkfs.fat not found"
+      err "mkfs.vfat/mkfs.fat not found"
       return 1
     fi
   fi
@@ -268,12 +291,13 @@ ensure_mass_image() {
   mkdir -p "$AA_MUSIC_DIR"
   mkdir -p "$MASS_MOUNT_DIR"
 
+  log "mass image path: $MASS_IMAGE_PATH"
   create_or_resize_mass_image
   unmount_mass_mount_dir
 
   loop_dev="$(mount_mass_image || true)"
   if [ -z "$loop_dev" ] && ! mount | grep -q "on $MASS_MOUNT_DIR "; then
-    log "ERROR: could not mount mass image via loop device"
+    err "could not mount mass image via loop device"
     log "Hint: loop support missing; try: modprobe loop; ls -l /dev/loop-control /dev/loop0"
     return 1
   fi
@@ -432,8 +456,16 @@ switch_to_mass() {
   service_do umtprd stop
 
   usb_gadget_stop
-  ensure_mass_image
-  enable_mass_only_gadget
+
+  if ! ensure_mass_image; then
+    err "mass mode failed while preparing image; see $AA_MODE_SWITCH_LOG"
+    return 1
+  fi
+
+  if ! enable_mass_only_gadget; then
+    err "mass mode failed while enabling gadget; see $AA_MODE_SWITCH_LOG"
+    return 1
+  fi
 
   log "Mass-storage mode requested"
 }
@@ -446,12 +478,15 @@ switch_to_aa_mass() {
   cleanup_mass_gadget
   service_do "$AA_PROXY_SERVICE" start
 
-  ensure_mass_image
+  if ! ensure_mass_image; then
+    err "aa_mass failed while preparing mass image; see $AA_MODE_SWITCH_LOG"
+    return 1
+  fi
 
   if ! enable_mass_in_accessory_gadget; then
-    log "ERROR: Could not enable AA+Mass composite gadget"
-    log "Hint: your platform may not support AA+Mass simultaneously (USB endpoint/function limit)."
-    log "Hint: use 'mass' mode as fallback, or keep AA in 'aa' mode."
+    err "Could not enable AA+Mass composite gadget"
+    err "Hint: your platform may not support AA+Mass simultaneously (USB endpoint/function limit)."
+    err "Hint: use 'mass' mode as fallback, or keep AA in 'aa' mode."
     return 1
   fi
 

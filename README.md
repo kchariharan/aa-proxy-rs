@@ -190,6 +190,7 @@ For Alpine/Honda units that do not list songs via MTP, use `mass` mode (USB mass
 Mass mode uses an image file (`/data/music_mass.img`) and does not require a separate partition. Default sizing is dynamic (`MASS_IMAGE_SIZE_MB=auto`); set `MASS_IMAGE_SIZE_MB=512` if storage is low.
 
 For a single end-to-end command checklist, use `docs/LOCAL_MUSIC_README.md`.
+Mode-switch debug logs are written to `/var/log/aa-mode-switch.log`.
 
 ## Troubleshooting
 Sometimes deleting the system Bluetooth cache at /var/lib/bluetooth and restarting bluetoothd fixes persistent issues with device connectivity.

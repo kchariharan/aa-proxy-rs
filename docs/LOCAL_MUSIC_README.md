@@ -173,6 +173,18 @@ Check aa-proxy logs:
 sudo journalctl -u aa-proxy-rs -n 200 --no-pager
 ```
 
+Check aa-mode-switch log:
+
+```bash
+sudo tail -n 200 /var/log/aa-mode-switch.log
+```
+
+Enable verbose tracing for one run:
+
+```bash
+sudo AA_MODE_SWITCH_DEBUG=1 /var/run/aa-mode-switch.sh mass
+```
+
 Check if `umtprd` is running:
 
 ```bash
