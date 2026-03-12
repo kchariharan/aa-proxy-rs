@@ -164,6 +164,13 @@ Check if `umtprd` is running:
 ps -ef | grep umtprd | grep -v grep
 ```
 
+If `mass` mode shows loop-device errors, check loop support:
+
+```bash
+sudo modprobe loop || true
+ls -l /dev/loop-control /dev/loop0
+```
+
 If `both` mode fails with FunctionFS error, do this sequence:
 
 ```bash

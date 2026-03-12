@@ -143,6 +143,59 @@ unmount_mass_mount_dir() {
   fi
 }
 
+
+ensure_loop_devices() {
+  # Try to load loop kernel module if available
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe loop >/dev/null 2>&1 || true
+  fi
+
+  # Create common loop device nodes if missing
+  if [ ! -e /dev/loop-control ]; then
+    mknod /dev/loop-control c 10 237 >/dev/null 2>&1 || true
+  fi
+
+  if [ ! -e /dev/loop0 ]; then
+    mknod /dev/loop0 b 7 0 >/dev/null 2>&1 || true
+  fi
+}
+
+mount_mass_image() {
+  ensure_loop_devices
+
+  # Preferred path: explicit losetup + mount
+  if command -v losetup >/dev/null 2>&1; then
+    loop_dev="$(losetup -f --show "$MASS_IMAGE_PATH" 2>/dev/null || true)"
+    if [ -n "$loop_dev" ]; then
+      if mount "$loop_dev" "$MASS_MOUNT_DIR" >/dev/null 2>&1; then
+        printf '%s\n' "$loop_dev"
+        return 0
+      fi
+      losetup -d "$loop_dev" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Fallback path: kernel managed loop mount
+  if mount -o loop "$MASS_IMAGE_PATH" "$MASS_MOUNT_DIR" >/dev/null 2>&1; then
+    printf '\n'
+    return 0
+  fi
+
+  return 1
+}
+
+unmount_mass_image() {
+  loop_dev="$1"
+
+  if mount | grep -q "on $MASS_MOUNT_DIR "; then
+    umount "$MASS_MOUNT_DIR" >/dev/null 2>&1 || true
+  fi
+
+  if [ -n "$loop_dev" ] && command -v losetup >/dev/null 2>&1; then
+    losetup -d "$loop_dev" >/dev/null 2>&1 || true
+  fi
+}
+
 ensure_mass_image() {
   if [ ! -d "$AA_MUSIC_DIR" ]; then
     mkdir -p "$AA_MUSIC_DIR"
@@ -165,14 +218,21 @@ ensure_mass_image() {
   mkdir -p "$MASS_MOUNT_DIR"
   unmount_mass_mount_dir
 
-  mount -o loop "$MASS_IMAGE_PATH" "$MASS_MOUNT_DIR"
+  loop_dev="$(mount_mass_image || true)"
+  if [ -z "$loop_dev" ] && ! mount | grep -q "on $MASS_MOUNT_DIR "; then
+    log "ERROR: could not mount mass image via loop device"
+    log "Hint: kernel loop support is missing (module or /dev/loop* nodes)."
+    log "Hint: try: modprobe loop; ls -l /dev/loop-control /dev/loop0"
+    return 1
+  fi
+
   mkdir -p "$MASS_MOUNT_DIR/Music"
 
   # refresh image content from AA_MUSIC_DIR
   find "$MASS_MOUNT_DIR/Music" -mindepth 1 -maxdepth 1 -exec rm -rf {} + >/dev/null 2>&1 || true
   cp -a "$AA_MUSIC_DIR"/. "$MASS_MOUNT_DIR/Music"/ 2>/dev/null || true
   sync
-  umount "$MASS_MOUNT_DIR"
+  unmount_mass_image "$loop_dev"
 
   log "Mass-storage image synced from: $AA_MUSIC_DIR"
 }
