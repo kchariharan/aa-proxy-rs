@@ -196,7 +196,11 @@ If `mass` mode shows loop-device errors, check loop support:
 ```bash
 sudo modprobe loop || true
 ls -l /dev/loop-control /dev/loop0
+losetup -f
 ```
+
+If `mass`/`aa_mass` fails with `mkfs.vfat/mkfs.fat not found`, your image is missing FAT tooling (`dosfstools`).
+Install/add `mkfs.vfat` in the firmware image (Buildroot package: `dosfstools`).
 
 If first `mass` run fails with `No space left on device`, recreate with smaller image:
 

@@ -201,6 +201,23 @@ resolve_mass_image_size_mb() {
   echo "$MASS_IMAGE_SIZE_MB"
 }
 
+resolve_mkfs_fat_tool() {
+  if command -v mkfs.vfat >/dev/null 2>&1; then
+    echo "mkfs.vfat"
+    return 0
+  fi
+  if command -v mkfs.fat >/dev/null 2>&1; then
+    echo "mkfs.fat"
+    return 0
+  fi
+  if command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -q '^mkfs\.vfat$'; then
+    echo "busybox mkfs.vfat"
+    return 0
+  fi
+  return 1
+}
+
+
 ensure_loop_devices() {
   if command -v modprobe >/dev/null 2>&1; then
     modprobe loop >/dev/null 2>&1 || true
@@ -276,14 +293,16 @@ create_or_resize_mass_image() {
     rm -f "$MASS_IMAGE_PATH"
     truncate -s "${target_mb}M" "$MASS_IMAGE_PATH"
 
-    if command -v mkfs.vfat >/dev/null 2>&1; then
-      mkfs.vfat "$MASS_IMAGE_PATH" >/dev/null 2>&1
-    elif command -v mkfs.fat >/dev/null 2>&1; then
-      mkfs.fat "$MASS_IMAGE_PATH" >/dev/null 2>&1
-    else
+    mkfs_tool="$(resolve_mkfs_fat_tool || true)"
+    if [ -z "$mkfs_tool" ]; then
       err "mkfs.vfat/mkfs.fat not found"
+      err "Install dosfstools in your firmware image (or provide busybox mkfs.vfat)."
+      err "Without FAT formatter we cannot create USB mass-storage image."
       return 1
     fi
+
+    # shellcheck disable=SC2086
+    $mkfs_tool "$MASS_IMAGE_PATH" >/dev/null 2>&1
   fi
 }
 
@@ -292,13 +311,15 @@ ensure_mass_image() {
   mkdir -p "$MASS_MOUNT_DIR"
 
   log "mass image path: $MASS_IMAGE_PATH"
-  create_or_resize_mass_image
+  if ! create_or_resize_mass_image; then
+    return 1
+  fi
   unmount_mass_mount_dir
 
   loop_dev="$(mount_mass_image || true)"
   if [ -z "$loop_dev" ] && ! mount | grep -q "on $MASS_MOUNT_DIR "; then
     err "could not mount mass image via loop device"
-    log "Hint: loop support missing; try: modprobe loop; ls -l /dev/loop-control /dev/loop0"
+    log "Hint: loop support missing; try: modprobe loop; ls -l /dev/loop-control /dev/loop0; losetup -f"
     return 1
   fi
 

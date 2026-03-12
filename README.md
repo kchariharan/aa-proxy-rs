@@ -191,6 +191,7 @@ Mass mode uses an image file (`/data/music_mass.img`) and does not require a sep
 
 For a single end-to-end command checklist, use `docs/LOCAL_MUSIC_README.md`.
 Mode-switch debug logs are written to `/var/log/aa-mode-switch.log`.
+Mass mode requires FAT formatter (`mkfs.vfat`/`mkfs.fat`; Buildroot package `dosfstools`).
 
 ## Troubleshooting
 Sometimes deleting the system Bluetooth cache at /var/lib/bluetooth and restarting bluetoothd fixes persistent issues with device connectivity.
