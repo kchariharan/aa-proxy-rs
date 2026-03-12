@@ -59,7 +59,7 @@ It supports:
 - `aa` mode (Android Auto only)
 - `media` mode (USB MTP local music only)
 - `both` mode (Android Auto + USB MTP together, for head units that support simultaneous AA + USB audio)
-- `mass` mode (USB Mass Storage; preferred for HUs that do not browse MTP content reliably)
+- `mass` mode (USB Mass Storage; preferred for HUs that do not browse MTP content reliably, using `/data/music_mass.img`)
 - `aa_mass` mode (Android Auto + USB Mass Storage; depends on gadget/HU support)
 
 > The script is intentionally conservative and uses environment variables to match distro/service differences.
@@ -69,6 +69,7 @@ It supports:
 2. Ensure `umtprd` and gadget init script are present in your image.
 3. On first boot, open the aa-proxy web interface.
 4. Use mode buttons in UI (`aa`, `media`, `both`, `mass`, `aa_mass`) instead of shell commands.
+5. Mass image size can be dynamic (`MASS_IMAGE_SIZE_MB=auto`) or fixed (e.g. `512`).
 
 
 ## Adding MP3 files after flashing (no SSH needed)

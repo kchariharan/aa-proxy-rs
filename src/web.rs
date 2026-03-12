@@ -29,6 +29,7 @@ use sha2::{Digest, Sha256};
 use simplelog::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{io::Cursor, path::Path, sync::Arc};
@@ -265,6 +266,17 @@ pub async fn battery_handler(
     (StatusCode::OK, "OK").into_response()
 }
 
+fn sync_mode_switch_script() -> std::io::Result<()> {
+    std::fs::write(
+        AA_MODE_SWITCH_SCRIPT,
+        include_str!("../contrib/aa-mode-switch.sh"),
+    )?;
+
+    let mut perms = std::fs::metadata(AA_MODE_SWITCH_SCRIPT)?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(AA_MODE_SWITCH_SCRIPT, perms)
+}
+
 fn generate_filename(kind: &str) -> String {
     let now = Local::now();
     now.format(&format!("%Y%m%d%H%M%S_aa-proxy-rs_{}.tar.gz", kind))
@@ -298,6 +310,14 @@ async fn mode_handler(
         return (
             StatusCode::BAD_REQUEST,
             "Invalid mode. Expected one of: aa, media, both, mass, aa_mass".to_string(),
+        )
+            .into_response();
+    }
+
+    if let Err(err) = sync_mode_switch_script() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to sync mode switch script: {}", err),
         )
             .into_response();
     }

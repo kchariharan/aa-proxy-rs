@@ -9,14 +9,15 @@
 #   aa-mode-switch.sh aa_mass
 #
 # Optional env vars:
-#   AA_PROXY_SERVICE      (default: aa-proxy-rs)
-#   UMTPRD_BIN            (default: /usr/sbin/umtprd)
-#   UMTPRD_CONF           (default: /var/run/umtprd.conf)
-#   USB_GADGET_SCRIPT     (default: /var/run/S92usb_gadget)
-#   AA_MUSIC_DIR          (default: /data/music)
-#   MASS_IMAGE_PATH       (default: /data/music_mass.img)
-#   MASS_MOUNT_DIR        (default: /tmp/aa-mass-mount)
-#   MASS_IMAGE_SIZE_MB    (default: 1024)
+#   AA_PROXY_SERVICE       (default: aa-proxy-rs)
+#   UMTPRD_BIN             (default: /usr/sbin/umtprd)
+#   UMTPRD_CONF            (default: /var/run/umtprd.conf)
+#   USB_GADGET_SCRIPT      (default: /var/run/S92usb_gadget)
+#   AA_MUSIC_DIR           (default: /data/music)
+#   MASS_IMAGE_PATH        (default: /data/music_mass.img)
+#   MASS_MOUNT_DIR         (default: /tmp/aa-mass-mount)
+#   MASS_IMAGE_SIZE_MB     (default: auto) | integer MB
+#   MASS_IMAGE_MARGIN_MB   (default: 256)
 
 set -eu
 
@@ -27,7 +28,8 @@ USB_GADGET_SCRIPT="${USB_GADGET_SCRIPT:-/var/run/S92usb_gadget}"
 AA_MUSIC_DIR="${AA_MUSIC_DIR:-/data/music}"
 MASS_IMAGE_PATH="${MASS_IMAGE_PATH:-/data/music_mass.img}"
 MASS_MOUNT_DIR="${MASS_MOUNT_DIR:-/tmp/aa-mass-mount}"
-MASS_IMAGE_SIZE_MB="${MASS_IMAGE_SIZE_MB:-1024}"
+MASS_IMAGE_SIZE_MB="${MASS_IMAGE_SIZE_MB:-auto}"
+MASS_IMAGE_MARGIN_MB="${MASS_IMAGE_MARGIN_MB:-256}"
 PIDFILE="/var/run/umtprd.pid"
 
 CFGFS_BASE="/sys/kernel/config/usb_gadget"
@@ -60,11 +62,7 @@ is_umtprd_running() {
     fi
   fi
 
-  if pgrep -f "$(basename "$UMTPRD_BIN")" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  return 1
+  pgrep -f "$(basename "$UMTPRD_BIN")" >/dev/null 2>&1
 }
 
 stop_umtprd() {
@@ -76,11 +74,7 @@ stop_umtprd() {
 }
 
 prepare_music_link() {
-  if [ ! -d "$AA_MUSIC_DIR" ]; then
-    log "Creating missing music directory: $AA_MUSIC_DIR"
-    mkdir -p "$AA_MUSIC_DIR"
-  fi
-
+  mkdir -p "$AA_MUSIC_DIR"
   mkdir -p /tmp/aa-proxy-mtp
   rm -f /tmp/aa-proxy-mtp/music
   ln -s "$AA_MUSIC_DIR" /tmp/aa-proxy-mtp/music
@@ -137,39 +131,65 @@ get_udc_name() {
   ls /sys/class/udc 2>/dev/null | head -n 1
 }
 
-
 get_free_space_mb() {
   target_dir="$1"
   df -Pm "$target_dir" 2>/dev/null | awk 'NR==2 {print $4}'
 }
 
-unmount_mass_mount_dir() {
-  if mount | grep -q "on $MASS_MOUNT_DIR "; then
-    umount "$MASS_MOUNT_DIR" >/dev/null 2>&1 || true
+get_dir_size_mb() {
+  target_dir="$1"
+  du -sm "$target_dir" 2>/dev/null | awk '{print $1}'
+}
+
+get_image_size_mb() {
+  image="$1"
+  if [ -f "$image" ]; then
+    bytes="$(stat -c %s "$image" 2>/dev/null || echo 0)"
+    echo $(( (bytes + 1024*1024 - 1) / (1024*1024) ))
+  else
+    echo 0
   fi
 }
 
+resolve_mass_image_size_mb() {
+  image_parent="$(dirname "$MASS_IMAGE_PATH")"
+  mkdir -p "$image_parent"
+  free_mb="$(get_free_space_mb "$image_parent" || true)"
+
+  if [ "$MASS_IMAGE_SIZE_MB" = "auto" ]; then
+    music_mb="$(get_dir_size_mb "$AA_MUSIC_DIR" || true)"
+    [ -n "$music_mb" ] || music_mb=0
+
+    target_mb=$((music_mb + MASS_IMAGE_MARGIN_MB))
+    [ "$target_mb" -lt 256 ] && target_mb=256
+
+    if [ -n "$free_mb" ]; then
+      cap_mb=$((free_mb - 64))
+      [ "$cap_mb" -lt 128 ] && cap_mb=128
+      if [ "$target_mb" -gt "$cap_mb" ]; then
+        target_mb="$cap_mb"
+      fi
+    fi
+
+    echo "$target_mb"
+    return 0
+  fi
+
+  echo "$MASS_IMAGE_SIZE_MB"
+}
 
 ensure_loop_devices() {
-  # Try to load loop kernel module if available
   if command -v modprobe >/dev/null 2>&1; then
     modprobe loop >/dev/null 2>&1 || true
   fi
 
-  # Create common loop device nodes if missing
-  if [ ! -e /dev/loop-control ]; then
-    mknod /dev/loop-control c 10 237 >/dev/null 2>&1 || true
-  fi
-
-  if [ ! -e /dev/loop0 ]; then
-    mknod /dev/loop0 b 7 0 >/dev/null 2>&1 || true
-  fi
+  [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 >/dev/null 2>&1 || true
+  [ -e /dev/loop0 ] || mknod /dev/loop0 b 7 0 >/dev/null 2>&1 || true
 }
 
 mount_mass_image() {
   ensure_loop_devices
 
-  # Preferred path: explicit losetup + mount
   if command -v losetup >/dev/null 2>&1; then
     loop_dev="$(losetup -f --show "$MASS_IMAGE_PATH" 2>/dev/null || true)"
     if [ -n "$loop_dev" ]; then
@@ -181,7 +201,6 @@ mount_mass_image() {
     fi
   fi
 
-  # Fallback path: kernel managed loop mount
   if mount -o loop "$MASS_IMAGE_PATH" "$MASS_MOUNT_DIR" >/dev/null 2>&1; then
     printf '\n'
     return 0
@@ -190,38 +209,49 @@ mount_mass_image() {
   return 1
 }
 
-unmount_mass_image() {
-  loop_dev="$1"
-
+unmount_mass_mount_dir() {
   if mount | grep -q "on $MASS_MOUNT_DIR "; then
     umount "$MASS_MOUNT_DIR" >/dev/null 2>&1 || true
   fi
+}
+
+unmount_mass_image() {
+  loop_dev="$1"
+  unmount_mass_mount_dir
 
   if [ -n "$loop_dev" ] && command -v losetup >/dev/null 2>&1; then
     losetup -d "$loop_dev" >/dev/null 2>&1 || true
   fi
 }
 
-ensure_mass_image() {
-  if [ ! -d "$AA_MUSIC_DIR" ]; then
-    mkdir -p "$AA_MUSIC_DIR"
+create_or_resize_mass_image() {
+  image_parent="$(dirname "$MASS_IMAGE_PATH")"
+  mkdir -p "$image_parent"
+
+  target_mb="$(resolve_mass_image_size_mb)"
+  current_mb="$(get_image_size_mb "$MASS_IMAGE_PATH")"
+
+  # validate target numeric
+  case "$target_mb" in
+    ''|*[!0-9]*)
+      log "ERROR: invalid MASS_IMAGE_SIZE_MB: $target_mb"
+      return 1
+      ;;
+  esac
+
+  free_mb="$(get_free_space_mb "$image_parent" || true)"
+  needed_mb=$((target_mb + 64))
+  if [ -n "$free_mb" ] && [ "$current_mb" -eq 0 ] && [ "$free_mb" -lt "$needed_mb" ]; then
+    log "ERROR: not enough free space to create mass image"
+    log "Need ~${needed_mb}MB free, available: ${free_mb}MB"
+    log "Hint: set smaller size, e.g.: MASS_IMAGE_SIZE_MB=512 /var/run/aa-mode-switch.sh mass"
+    return 1
   fi
 
-  if [ ! -f "$MASS_IMAGE_PATH" ]; then
-    image_parent="$(dirname "$MASS_IMAGE_PATH")"
-    mkdir -p "$image_parent"
-
-    free_mb="$(get_free_space_mb "$image_parent" || true)"
-    needed_mb=$((MASS_IMAGE_SIZE_MB + 64))
-    if [ -n "$free_mb" ] && [ "$free_mb" -lt "$needed_mb" ]; then
-      log "ERROR: not enough free space to create mass image"
-      log "Need ~${needed_mb}MB free, available: ${free_mb}MB"
-      log "Hint: reduce size, e.g.: MASS_IMAGE_SIZE_MB=512 /var/run/aa-mode-switch.sh mass"
-      return 1
-    fi
-
-    log "Creating sparse mass-storage image: $MASS_IMAGE_PATH (${MASS_IMAGE_SIZE_MB}MB)"
-    truncate -s "${MASS_IMAGE_SIZE_MB}M" "$MASS_IMAGE_PATH"
+  if [ "$current_mb" -ne "$target_mb" ]; then
+    log "(re)creating sparse mass image at $MASS_IMAGE_PATH (${target_mb}MB)"
+    rm -f "$MASS_IMAGE_PATH"
+    truncate -s "${target_mb}M" "$MASS_IMAGE_PATH"
 
     if command -v mkfs.vfat >/dev/null 2>&1; then
       mkfs.vfat "$MASS_IMAGE_PATH" >/dev/null 2>&1
@@ -232,21 +262,23 @@ ensure_mass_image() {
       return 1
     fi
   fi
+}
 
+ensure_mass_image() {
+  mkdir -p "$AA_MUSIC_DIR"
   mkdir -p "$MASS_MOUNT_DIR"
+
+  create_or_resize_mass_image
   unmount_mass_mount_dir
 
   loop_dev="$(mount_mass_image || true)"
   if [ -z "$loop_dev" ] && ! mount | grep -q "on $MASS_MOUNT_DIR "; then
     log "ERROR: could not mount mass image via loop device"
-    log "Hint: kernel loop support is missing (module or /dev/loop* nodes)."
-    log "Hint: try: modprobe loop; ls -l /dev/loop-control /dev/loop0"
+    log "Hint: loop support missing; try: modprobe loop; ls -l /dev/loop-control /dev/loop0"
     return 1
   fi
 
   mkdir -p "$MASS_MOUNT_DIR/Music"
-
-  # refresh image content from AA_MUSIC_DIR
   find "$MASS_MOUNT_DIR/Music" -mindepth 1 -maxdepth 1 -exec rm -rf {} + >/dev/null 2>&1 || true
   cp -a "$AA_MUSIC_DIR"/. "$MASS_MOUNT_DIR/Music"/ 2>/dev/null || true
   sync
@@ -310,7 +342,6 @@ enable_mass_only_gadget() {
   printf '%s\n' "$MASS_IMAGE_PATH" > "$MASS_GADGET_PATH/functions/mass_storage.0/lun.0/file"
 
   ln -sf "$MASS_GADGET_PATH/functions/mass_storage.0" "$MASS_GADGET_PATH/configs/c.1/mass_storage.0"
-
   printf '%s\n' "$udc" > "$MASS_GADGET_PATH/UDC"
   log "Mass-storage gadget bound to UDC: $udc"
 }
@@ -338,7 +369,6 @@ enable_mass_in_accessory_gadget() {
 
   ln -sf "$ACCESSORY_GADGET_PATH/functions/mass_storage.0" "$ACCESSORY_GADGET_PATH/configs/c.1/mass_storage.0"
 
-  # Rebind only if already bound
   if [ -n "$udc" ]; then
     printf '\n' > "$ACCESSORY_GADGET_PATH/UDC" 2>/dev/null || true
     sleep 0.2
@@ -366,7 +396,6 @@ switch_to_aa() {
 switch_to_media() {
   log "Switching to Local Music (MTP) mode"
   service_do "$AA_PROXY_SERVICE" stop
-
   stop_umtprd
   service_do umtprd stop
 
@@ -385,7 +414,6 @@ switch_to_both() {
 
   cleanup_mass_gadget
   disable_mass_in_accessory_gadget
-
   service_do "$AA_PROXY_SERVICE" start
 
   if ! ensure_umtprd_running; then
@@ -399,13 +427,11 @@ switch_to_both() {
 
 switch_to_mass() {
   log "Switching to USB Mass Storage mode"
-
   service_do "$AA_PROXY_SERVICE" stop
   stop_umtprd
   service_do umtprd stop
 
   usb_gadget_stop
-
   ensure_mass_image
   enable_mass_only_gadget
 
@@ -414,7 +440,6 @@ switch_to_mass() {
 
 switch_to_aa_mass() {
   log "Switching to Android Auto + USB Mass Storage mode"
-
   stop_umtprd
   service_do umtprd stop
 
@@ -434,21 +459,11 @@ switch_to_aa_mass() {
 }
 
 case "${1:-}" in
-  aa)
-    switch_to_aa
-    ;;
-  media)
-    switch_to_media
-    ;;
-  both)
-    switch_to_both
-    ;;
-  mass)
-    switch_to_mass
-    ;;
-  aa_mass)
-    switch_to_aa_mass
-    ;;
+  aa) switch_to_aa ;;
+  media) switch_to_media ;;
+  both) switch_to_both ;;
+  mass) switch_to_mass ;;
+  aa_mass) switch_to_aa_mass ;;
   *)
     echo "Usage: $0 {aa|media|both|mass|aa_mass}" >&2
     exit 2

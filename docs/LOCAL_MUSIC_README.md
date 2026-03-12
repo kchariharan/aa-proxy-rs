@@ -134,8 +134,15 @@ Songs are extracted to:
 /data/music
 ```
 
+Mass image file path (used by `mass`/`aa_mass`):
+
+```text
+/data/music_mass.img
+```
+
 Mass mode uses an image file (default `/data/music_mass.img`) and **does not require a separate partition**.
-If storage is tight, use a smaller image size before first `mass` run:
+By default image sizing is dynamic (`MASS_IMAGE_SIZE_MB=auto`): it scales based on `/data/music` size and free space.
+If storage is tight, force a smaller image size before first `mass` run:
 
 ```bash
 export MASS_IMAGE_SIZE_MB=512
