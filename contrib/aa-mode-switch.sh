@@ -227,6 +227,43 @@ ensure_loop_devices() {
   [ -e /dev/loop0 ] || mknod /dev/loop0 b 7 0 >/dev/null 2>&1 || true
 }
 
+
+diagnose_loop_support() {
+  log "loop diagnose: kernel=$(uname -r 2>/dev/null || echo unknown)"
+
+  if [ -e /proc/devices ]; then
+    if grep -q "[[:space:]]loop$" /proc/devices; then
+      log "loop diagnose: loop block driver present in /proc/devices"
+    else
+      err "loop diagnose: loop block driver NOT present in /proc/devices"
+      err "loop diagnose: kernel likely missing CONFIG_BLK_DEV_LOOP"
+    fi
+  fi
+
+  if [ -d /sys/module/loop ]; then
+    log "loop diagnose: /sys/module/loop exists"
+  else
+    err "loop diagnose: /sys/module/loop missing"
+  fi
+
+  if ls /dev/loop-control /dev/loop0 >/dev/null 2>&1; then
+    log "loop diagnose: loop device nodes exist"
+  else
+    err "loop diagnose: /dev/loop-control or /dev/loop0 missing"
+  fi
+
+  if command -v losetup >/dev/null 2>&1; then
+    losetup_out="$(losetup -f 2>&1 || true)"
+    if [ -n "$losetup_out" ]; then
+      log "loop diagnose: losetup -f => $losetup_out"
+    else
+      log "loop diagnose: losetup -f returned empty output"
+    fi
+  else
+    err "loop diagnose: losetup binary missing"
+  fi
+}
+
 mount_mass_image() {
   ensure_loop_devices
 
@@ -319,7 +356,9 @@ ensure_mass_image() {
   loop_dev="$(mount_mass_image || true)"
   if [ -z "$loop_dev" ] && ! mount | grep -q "on $MASS_MOUNT_DIR "; then
     err "could not mount mass image via loop device"
-    log "Hint: loop support missing; try: modprobe loop; ls -l /dev/loop-control /dev/loop0; losetup -f"
+    diagnose_loop_support
+    log "Hint: if loop driver is missing, rebuild image/kernel with CONFIG_BLK_DEV_LOOP=y (or module)"
+    log "Hint: if module exists, ensure it can be loaded: modprobe loop"
     return 1
   fi
 

@@ -197,7 +197,11 @@ If `mass` mode shows loop-device errors, check loop support:
 sudo modprobe loop || true
 ls -l /dev/loop-control /dev/loop0
 losetup -f
+grep -E "[[:space:]]loop$" /proc/devices || true
 ```
+
+If `/proc/devices` does not contain `loop`, your kernel is missing loop driver.
+Rebuild image with kernel option `CONFIG_BLK_DEV_LOOP=y` (or as module + loadable module present).
 
 If `mass`/`aa_mass` fails with `mkfs.vfat/mkfs.fat not found`, your image is missing FAT tooling (`dosfstools`).
 Install/add `mkfs.vfat` in the firmware image (Buildroot package: `dosfstools`).
