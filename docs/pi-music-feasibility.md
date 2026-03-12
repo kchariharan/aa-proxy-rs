@@ -59,6 +59,8 @@ It supports:
 - `aa` mode (Android Auto only)
 - `media` mode (USB MTP local music only)
 - `both` mode (Android Auto + USB MTP together, for head units that support simultaneous AA + USB audio)
+- `mass` mode (USB Mass Storage; preferred for HUs that do not browse MTP content reliably)
+- `aa_mass` mode (Android Auto + USB Mass Storage; depends on gadget/HU support)
 
 > The script is intentionally conservative and uses environment variables to match distro/service differences.
 
@@ -66,7 +68,7 @@ It supports:
 1. Build image as usual (no manual script installation needed).
 2. Ensure `umtprd` and gadget init script are present in your image.
 3. On first boot, open the aa-proxy web interface.
-4. Use mode buttons in UI (`aa`, `media`, `both`) instead of shell commands.
+4. Use mode buttons in UI (`aa`, `media`, `both`, `mass`, `aa_mass`) instead of shell commands.
 
 
 ## Adding MP3 files after flashing (no SSH needed)
@@ -86,9 +88,11 @@ Notes:
 ## Validation checklist in your car
 1. `media` mode: HU in USB media source should detect device and browse music.
 2. `both` mode: verify Android Auto stays connected while HU can play local MP3 simultaneously.
-3. Play MP3 for at least 20–30 minutes; confirm phone is not actively streaming audio data.
-4. Switch back to `aa` mode and verify normal auto-connect/reconnect works.
-5. Repeat transitions multiple times to confirm stability.
+3. `mass` mode: verify HU indexes files and playback works as if USB pen drive.
+4. `aa_mass` mode: verify simultaneous AA + mass storage (if supported).
+5. Play MP3 for at least 20–30 minutes; confirm phone is not actively streaming audio data.
+6. Switch back to `aa` mode and verify normal auto-connect/reconnect works.
+7. Repeat transitions multiple times to confirm stability.
 
 ## Future enhancement ideas
 - Wire mode switch to GPIO button patterns.

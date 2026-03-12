@@ -178,13 +178,15 @@ Thanks to the power of open source, even older EVs can now enjoy modern features
 
 If you want the head unit to play MP3 files directly from the Raspberry Pi SD card:
 
-- Use **Web UI mode buttons** to switch USB behavior: `aa`, `media`, `both`
+- Use **Web UI mode buttons** to switch USB behavior: `aa`, `media`, `both`, `mass`, `aa_mass`
 - Upload songs directly from the Web UI using **"Upload music archive (.tar.gz)"**
 - Music is stored on the device under `/data/music`
 
 The mode-switch backend script is now generated automatically during `--generate-system-config` as `/var/run/aa-mode-switch.sh` (no manual installation needed).
 
 A full feasibility/implementation guide is in `docs/pi-music-feasibility.md`.
+
+For Alpine/Honda units that do not list songs via MTP, use `mass` mode (USB mass storage).
 
 For a single end-to-end command checklist, use `docs/LOCAL_MUSIC_README.md`.
 

@@ -294,10 +294,10 @@ async fn mode_handler(
     Json(req): Json<ModeRequest>,
 ) -> impl IntoResponse {
     let mode = req.mode.trim().to_ascii_lowercase();
-    if mode != "aa" && mode != "media" && mode != "both" {
+    if mode != "aa" && mode != "media" && mode != "both" && mode != "mass" && mode != "aa_mass" {
         return (
             StatusCode::BAD_REQUEST,
-            "Invalid mode. Expected one of: aa, media, both".to_string(),
+            "Invalid mode. Expected one of: aa, media, both, mass, aa_mass".to_string(),
         )
             .into_response();
     }

@@ -3,7 +3,9 @@
 This is the **single checklist** to get `aa-proxy-rs` running with:
 - Android Auto (`aa` mode)
 - Local USB MTP music (`media` mode)
-- Combined mode (`both` mode) when your head unit supports both together
+- Combined MTP (`both` mode) when your head unit supports both together
+- USB Mass Storage (`mass` mode)
+- Android Auto + USB Mass Storage (`aa_mass` mode, platform/HU dependent)
 
 ---
 
@@ -95,7 +97,9 @@ http://10.0.0.1
 Use the action buttons in UI:
 - **USB mode: Android Auto** (`aa`)
 - **USB mode: Local music** (`media`)
-- **USB mode: Both (AA + Music)** (`both`)
+- **USB mode: Both (AA + MTP)** (`both`)
+- **USB mode: Mass storage** (`mass`)
+- **USB mode: Android Auto + Mass** (`aa_mass`)
 
 ---
 
@@ -140,6 +144,8 @@ If ever needed from shell on Pi:
 sudo /var/run/aa-mode-switch.sh aa
 sudo /var/run/aa-mode-switch.sh media
 sudo /var/run/aa-mode-switch.sh both
+sudo /var/run/aa-mode-switch.sh mass
+sudo /var/run/aa-mode-switch.sh aa_mass
 ```
 
 ---
@@ -163,6 +169,8 @@ If `both` mode fails with FunctionFS error, do this sequence:
 ```bash
 sudo /var/run/aa-mode-switch.sh media
 sudo /var/run/aa-mode-switch.sh both
+sudo /var/run/aa-mode-switch.sh mass
+sudo /var/run/aa-mode-switch.sh aa_mass
 ```
 
 ---

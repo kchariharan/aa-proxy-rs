@@ -70,7 +70,13 @@
             🎵 USB mode: Local music
           </button>
           <button type="button" onclick="handleModeSwitch('both')">
-            🔀 USB mode: Both (AA + Music)
+            🔀 USB mode: Both (AA + MTP)
+          </button>
+          <button type="button" onclick="handleModeSwitch('mass')">
+            💽 USB mode: Mass storage
+          </button>
+          <button type="button" onclick="handleModeSwitch('aa_mass')">
+            🚘+💽 USB mode: Android Auto + Mass
           </button>
           <button type="button" data-endpoint="/upload-music">
             🎶 Upload music archive (.tar.gz)
