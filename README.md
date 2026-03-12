@@ -187,6 +187,7 @@ The mode-switch backend script is now generated automatically during `--generate
 A full feasibility/implementation guide is in `docs/pi-music-feasibility.md`.
 
 For Alpine/Honda units that do not list songs via MTP, use `mass` mode (USB mass storage).
+Mass mode uses an image file (`/data/music_mass.img`) and does not require a separate partition; reduce size with `MASS_IMAGE_SIZE_MB=512` if storage is low.
 
 For a single end-to-end command checklist, use `docs/LOCAL_MUSIC_README.md`.
 

@@ -16,7 +16,7 @@
 #   AA_MUSIC_DIR          (default: /data/music)
 #   MASS_IMAGE_PATH       (default: /data/music_mass.img)
 #   MASS_MOUNT_DIR        (default: /tmp/aa-mass-mount)
-#   MASS_IMAGE_SIZE_MB    (default: 4096)
+#   MASS_IMAGE_SIZE_MB    (default: 1024)
 
 set -eu
 
@@ -27,7 +27,7 @@ USB_GADGET_SCRIPT="${USB_GADGET_SCRIPT:-/var/run/S92usb_gadget}"
 AA_MUSIC_DIR="${AA_MUSIC_DIR:-/data/music}"
 MASS_IMAGE_PATH="${MASS_IMAGE_PATH:-/data/music_mass.img}"
 MASS_MOUNT_DIR="${MASS_MOUNT_DIR:-/tmp/aa-mass-mount}"
-MASS_IMAGE_SIZE_MB="${MASS_IMAGE_SIZE_MB:-4096}"
+MASS_IMAGE_SIZE_MB="${MASS_IMAGE_SIZE_MB:-1024}"
 PIDFILE="/var/run/umtprd.pid"
 
 CFGFS_BASE="/sys/kernel/config/usb_gadget"
@@ -137,6 +137,12 @@ get_udc_name() {
   ls /sys/class/udc 2>/dev/null | head -n 1
 }
 
+
+get_free_space_mb() {
+  target_dir="$1"
+  df -Pm "$target_dir" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
 unmount_mass_mount_dir() {
   if mount | grep -q "on $MASS_MOUNT_DIR "; then
     umount "$MASS_MOUNT_DIR" >/dev/null 2>&1 || true
@@ -202,8 +208,20 @@ ensure_mass_image() {
   fi
 
   if [ ! -f "$MASS_IMAGE_PATH" ]; then
-    log "Creating mass-storage image: $MASS_IMAGE_PATH (${MASS_IMAGE_SIZE_MB}MB)"
-    dd if=/dev/zero of="$MASS_IMAGE_PATH" bs=1M count="$MASS_IMAGE_SIZE_MB" status=none
+    image_parent="$(dirname "$MASS_IMAGE_PATH")"
+    mkdir -p "$image_parent"
+
+    free_mb="$(get_free_space_mb "$image_parent" || true)"
+    needed_mb=$((MASS_IMAGE_SIZE_MB + 64))
+    if [ -n "$free_mb" ] && [ "$free_mb" -lt "$needed_mb" ]; then
+      log "ERROR: not enough free space to create mass image"
+      log "Need ~${needed_mb}MB free, available: ${free_mb}MB"
+      log "Hint: reduce size, e.g.: MASS_IMAGE_SIZE_MB=512 /var/run/aa-mode-switch.sh mass"
+      return 1
+    fi
+
+    log "Creating sparse mass-storage image: $MASS_IMAGE_PATH (${MASS_IMAGE_SIZE_MB}MB)"
+    truncate -s "${MASS_IMAGE_SIZE_MB}M" "$MASS_IMAGE_PATH"
 
     if command -v mkfs.vfat >/dev/null 2>&1; then
       mkfs.vfat "$MASS_IMAGE_PATH" >/dev/null 2>&1
@@ -407,7 +425,8 @@ switch_to_aa_mass() {
 
   if ! enable_mass_in_accessory_gadget; then
     log "ERROR: Could not enable AA+Mass composite gadget"
-    log "Hint: your platform may not support AA+Mass simultaneously; use 'mass' mode instead."
+    log "Hint: your platform may not support AA+Mass simultaneously (USB endpoint/function limit)."
+    log "Hint: use 'mass' mode as fallback, or keep AA in 'aa' mode."
     return 1
   fi
 

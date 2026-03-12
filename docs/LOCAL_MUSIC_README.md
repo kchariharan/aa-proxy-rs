@@ -134,6 +134,14 @@ Songs are extracted to:
 /data/music
 ```
 
+Mass mode uses an image file (default `/data/music_mass.img`) and **does not require a separate partition**.
+If storage is tight, use a smaller image size before first `mass` run:
+
+```bash
+export MASS_IMAGE_SIZE_MB=512
+sudo /var/run/aa-mode-switch.sh mass
+```
+
 ---
 
 ## 8) Mode switch quick commands (optional fallback)
@@ -171,13 +179,27 @@ sudo modprobe loop || true
 ls -l /dev/loop-control /dev/loop0
 ```
 
+If first `mass` run fails with `No space left on device`, recreate with smaller image:
+
+```bash
+rm -f /data/music_mass.img
+MASS_IMAGE_SIZE_MB=512 sudo /var/run/aa-mode-switch.sh mass
+```
+
 If `both` mode fails with FunctionFS error, do this sequence:
 
 ```bash
 sudo /var/run/aa-mode-switch.sh media
 sudo /var/run/aa-mode-switch.sh both
+```
+
+If `aa_mass` fails, your USB controller/HU likely does not support composite AA+Mass together.
+Use one of these stable fallbacks:
+
+```bash
+sudo /var/run/aa-mode-switch.sh aa
+# or
 sudo /var/run/aa-mode-switch.sh mass
-sudo /var/run/aa-mode-switch.sh aa_mass
 ```
 
 ---
