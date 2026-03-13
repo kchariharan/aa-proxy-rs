@@ -164,6 +164,11 @@ get_dir_size_mb() {
   du -sm "$target_dir" 2>/dev/null | awk '{print $1}'
 }
 
+count_regular_files() {
+  target_dir="$1"
+  find "$target_dir" -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
 get_image_size_mb() {
   image="$1"
   if [ -f "$image" ]; then
@@ -363,8 +368,28 @@ ensure_mass_image() {
   fi
 
   mkdir -p "$MASS_MOUNT_DIR/Music"
+
+  src_count="$(count_regular_files "$AA_MUSIC_DIR")"
+  img_count="$(count_regular_files "$MASS_MOUNT_DIR/Music")"
+  log "sync stats before copy: source_files=$src_count image_files=$img_count"
+
+  # Safety recovery: if source is unexpectedly empty but image still has data,
+  # restore source first to avoid apparent data loss across mode switches.
+  if [ "$src_count" -eq 0 ] && [ "$img_count" -gt 0 ]; then
+    log "source dir empty while image has data; restoring image -> source"
+    mkdir -p "$AA_MUSIC_DIR"
+    cp -a "$MASS_MOUNT_DIR/Music"/. "$AA_MUSIC_DIR"/ 2>/dev/null || true
+    src_count="$(count_regular_files "$AA_MUSIC_DIR")"
+    log "after restore: source_files=$src_count"
+  fi
+
   find "$MASS_MOUNT_DIR/Music" -mindepth 1 -maxdepth 1 -exec rm -rf {} + >/dev/null 2>&1 || true
   cp -a "$AA_MUSIC_DIR"/. "$MASS_MOUNT_DIR/Music"/ 2>/dev/null || true
+
+  final_src_count="$(count_regular_files "$AA_MUSIC_DIR")"
+  final_img_count="$(count_regular_files "$MASS_MOUNT_DIR/Music")"
+  log "sync stats after copy: source_files=$final_src_count image_files=$final_img_count"
+
   sync
   unmount_mass_image "$loop_dev"
 
@@ -439,11 +464,17 @@ disable_mass_in_accessory_gadget() {
 
 enable_mass_in_accessory_gadget() {
   if [ ! -d "$ACCESSORY_GADGET_PATH" ]; then
-    log "ERROR: accessory gadget missing at $ACCESSORY_GADGET_PATH"
+    err "accessory gadget missing at $ACCESSORY_GADGET_PATH"
+    return 1
+  fi
+
+  if [ ! -d "$ACCESSORY_GADGET_PATH/configs/c.1" ]; then
+    err "accessory config path missing: $ACCESSORY_GADGET_PATH/configs/c.1"
     return 1
   fi
 
   udc="$(cat "$ACCESSORY_GADGET_PATH/UDC" 2>/dev/null || true)"
+  [ -n "$udc" ] || udc="$(get_udc_name)"
 
   mkdir -p "$ACCESSORY_GADGET_PATH/functions/mass_storage.0"
   printf 1 > "$ACCESSORY_GADGET_PATH/functions/mass_storage.0/stall"
@@ -453,10 +484,21 @@ enable_mass_in_accessory_gadget() {
 
   ln -sf "$ACCESSORY_GADGET_PATH/functions/mass_storage.0" "$ACCESSORY_GADGET_PATH/configs/c.1/mass_storage.0"
 
+  log "aa_mass: accessory functions now: $(ls -1 $ACCESSORY_GADGET_PATH/functions 2>/dev/null | tr '\n' ' ')"
+
   if [ -n "$udc" ]; then
     printf '\n' > "$ACCESSORY_GADGET_PATH/UDC" 2>/dev/null || true
     sleep 0.2
     printf '%s\n' "$udc" > "$ACCESSORY_GADGET_PATH/UDC"
+    log "aa_mass: accessory gadget rebound on UDC=$udc"
+  else
+    err "aa_mass: could not determine UDC to rebind accessory gadget"
+    return 1
+  fi
+
+  if [ ! -L "$ACCESSORY_GADGET_PATH/configs/c.1/mass_storage.0" ]; then
+    err "aa_mass: mass_storage function link missing in accessory config"
+    return 1
   fi
 
   log "Mass-storage function added to accessory gadget"

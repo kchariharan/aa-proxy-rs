@@ -179,6 +179,11 @@ Check aa-mode-switch log:
 sudo tail -n 200 /var/log/aa-mode-switch.log
 ```
 
+Look for sync counters to verify no source data loss across mode switches:
+- `sync stats before copy: source_files=... image_files=...`
+- `sync stats after copy: source_files=... image_files=...`
+
+
 Enable verbose tracing for one run:
 
 ```bash
@@ -220,7 +225,11 @@ sudo /var/run/aa-mode-switch.sh media
 sudo /var/run/aa-mode-switch.sh both
 ```
 
-If `aa_mass` fails, your USB controller/HU likely does not support composite AA+Mass together.
+If `aa_mass` fails, first inspect new accessory diagnostics in log:
+- `aa_mass: accessory functions now: ...`
+- `aa_mass: accessory gadget rebound on UDC=...`
+
+If it still fails, your USB controller/HU likely does not support composite AA+Mass together.
 Use one of these stable fallbacks:
 
 ```bash
