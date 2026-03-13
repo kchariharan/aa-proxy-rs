@@ -23,12 +23,15 @@ use futures::StreamExt;
 use glob::glob;
 use hyper::body::to_bytes;
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use simplelog::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Command;
 use std::{io::Cursor, path::Path, sync::Arc};
 use tar::Archive;
 use tar::Builder;
@@ -48,6 +51,8 @@ const AA_PROXY_RS_URL: &str = "https://github.com/aa-proxy/aa-proxy-rs";
 const BUILDROOT_URL: &str = "https://github.com/aa-proxy/buildroot";
 pub const CERT_DEST_DIR: &str = "/etc/aa-proxy-rs/";
 const CERT_SHA_FILENAME: &str = "cert-bundle.sha";
+const AA_MODE_SWITCH_SCRIPT: &str = "/var/run/aa-mode-switch.sh";
+const AA_MUSIC_DIR_DEFAULT: &str = "/data/music";
 
 // module name for logging engine
 const NAME: &str = "<i><bright-black> web: </>";
@@ -77,7 +82,14 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route("/userdata-restore", post(userdata_restore_handler))
         .route("/factory-reset", post(factory_reset_handler))
         .route("/set-time", post(set_time_handler))
+        .route("/mode", post(mode_handler))
+        .route("/upload-music", post(upload_music_handler))
         .with_state(state)
+}
+
+#[derive(Deserialize)]
+struct ModeRequest {
+    mode: String,
 }
 
 fn linkify_git_info(git_date: &str, git_hash: &str) -> String {
@@ -254,6 +266,17 @@ pub async fn battery_handler(
     (StatusCode::OK, "OK").into_response()
 }
 
+fn sync_mode_switch_script() -> std::io::Result<()> {
+    std::fs::write(
+        AA_MODE_SWITCH_SCRIPT,
+        include_str!("../contrib/aa-mode-switch.sh"),
+    )?;
+
+    let mut perms = std::fs::metadata(AA_MODE_SWITCH_SCRIPT)?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(AA_MODE_SWITCH_SCRIPT, perms)
+}
+
 fn generate_filename(kind: &str) -> String {
     let now = Local::now();
     now.format(&format!("%Y%m%d%H%M%S_aa-proxy-rs_{}.tar.gz", kind))
@@ -276,6 +299,62 @@ async fn reboot_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
         .status(StatusCode::OK)
         .body(Body::from("Reboot has been requested"))
         .unwrap()
+}
+
+async fn mode_handler(
+    State(_state): State<Arc<AppState>>,
+    Json(req): Json<ModeRequest>,
+) -> impl IntoResponse {
+    let mode = req.mode.trim().to_ascii_lowercase();
+    if mode != "aa" && mode != "media" && mode != "both" && mode != "mass" && mode != "aa_mass" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Invalid mode. Expected one of: aa, media, both, mass, aa_mass".to_string(),
+        )
+            .into_response();
+    }
+
+    if let Err(err) = sync_mode_switch_script() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to sync mode switch script: {}", err),
+        )
+            .into_response();
+    }
+
+    let output = Command::new(AA_MODE_SWITCH_SCRIPT)
+        .arg(&mode)
+        .env("AA_MUSIC_DIR", AA_MUSIC_DIR_DEFAULT)
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            (
+                StatusCode::OK,
+                format!("Mode switched to `{}`\n{}", mode, stdout),
+            )
+                .into_response()
+        }
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let code = out.status.code().unwrap_or(-1);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Mode switch failed for `{}` (exit code: {})\nstdout:\n{}\nstderr:\n{}\nHint: check /var/log/aa-mode-switch.log",
+                    mode, code, stdout, stderr
+                ),
+            )
+                .into_response()
+        }
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to execute {}: {}", AA_MODE_SWITCH_SCRIPT, err),
+        )
+            .into_response(),
+    }
 }
 
 async fn download_handler(
@@ -680,6 +759,98 @@ pub async fn userdata_restore_handler(
             save_path.display()
         ),
     )
+}
+
+pub async fn upload_music_handler(headers: HeaderMap, RawBody(body): RawBody) -> impl IntoResponse {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("");
+
+    if content_type != "application/gzip" && content_type != "application/x-gzip" {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            format!("Unsupported Content-Type: {}", content_type),
+        )
+            .into_response();
+    }
+
+    let body_bytes = match to_bytes(body).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Unable to read upload body: {}", err),
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(err) = fs::create_dir_all(AA_MUSIC_DIR_DEFAULT).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create music directory: {}", err),
+        )
+            .into_response();
+    }
+
+    let cursor = Cursor::new(body_bytes);
+    let decompressed = GzDecoder::new(cursor);
+    let mut archive = Archive::new(decompressed);
+
+    let mut extracted = 0usize;
+    let entries = match archive.entries() {
+        Ok(entries) => entries,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid tar archive: {}", err),
+            )
+                .into_response();
+        }
+    };
+
+    for entry in entries {
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to read tar entry: {}", err),
+                )
+                    .into_response();
+            }
+        };
+
+        match entry.unpack_in(AA_MUSIC_DIR_DEFAULT) {
+            Ok(true) => {
+                extracted += 1;
+            }
+            Ok(false) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Archive contains unsafe paths (outside destination)".to_string(),
+                )
+                    .into_response();
+            }
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to extract archive entry: {}", err),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    (
+        StatusCode::OK,
+        format!(
+            "Music archive extracted successfully to {} ({} entries)",
+            AA_MUSIC_DIR_DEFAULT, extracted
+        ),
+    )
+        .into_response()
 }
 
 pub async fn factory_reset_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
